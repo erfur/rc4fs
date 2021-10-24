@@ -82,5 +82,8 @@ int fs_readdir(const char *, void *, fuse_fill_dir_t, off_t, struct fuse_file_in
 int fs_open(const char *, struct fuse_file_info *);
 int fs_read (const char *, size_t, off_t, struct fuse_file_info *);
 int fs_write(const char *, const char *, size_t, off_t, struct fuse_file_info *);
+int fs_getxattr(const char *, const char *, char *, size_t);
+
+struct fuse_operations fs_ops;
 
 #endif

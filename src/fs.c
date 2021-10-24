@@ -2,6 +2,7 @@
 
 struct fuse_operations fs_ops {
     .getattr = fs_getattr,
+    .getxattr = fs_getxattr,
     .readdir = fs_readdir,
     .open = fs_open,
     .read = fs_read,
@@ -31,6 +32,21 @@ int fs_getattr(const char *path, struct stat *stbuf,
 
     if ((real_path = _fs_realpath(path))) {
         ret = stat(real_path, stbuf); 
+        free(real_path);
+    } else {
+        ret = -ENOENT;
+    }
+
+    return ret;
+}
+
+int fs_getxattr(const char *path, const char *name,
+                char *value, size_t size) {
+    int ret = 0;
+    char *real_path;
+
+    if ((real_path = _fs_realpath(path))) {
+        ret = stat(real_path, name, value, size); 
         free(real_path);
     } else {
         ret = -ENOENT;

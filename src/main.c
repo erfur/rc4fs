@@ -16,5 +16,5 @@ int main(int argc, char **argv) {
     ARGV_RC4_KEY = argv[argc-1];
     ARGV_REAL_PATH = argv[argc-2];
 
-    return fuse_main(argc-2, argv, NULL, 0);
+    return fuse_main(argc-2, argv, &fs_ops, 0);
 }

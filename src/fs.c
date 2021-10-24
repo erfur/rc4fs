@@ -1,7 +1,7 @@
 #include "fs.h"
 
 struct fuse_operations fs_ops {
-    .getxattr = fs_getxattr,
+    .getattr = fs_getattr,
     .readdir = fs_readdir,
     .open = fs_open,
     .read = fs_read,

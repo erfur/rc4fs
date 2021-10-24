@@ -33,7 +33,7 @@ A basic tutorial can be found in [1].
 
 To mount an encrypted folder, run the program with the following args:
 
-    $ rc4fs encrypted_folder mountpoint
+    $ rc4fs encrypted_folder rc4key mountpoint
 
 
 --[ 3 - References ]

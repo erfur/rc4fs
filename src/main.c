@@ -20,9 +20,9 @@ int main(int argc, char **argv) {
     }
 
     if ( rc4_set_key(argv[argc-1]) != 0 ) {
-		printf("Invalid key length\n");
-		return 1;
-	}
+        printf("Invalid key length\n");
+        return 1;
+    }
 
     if (getcwd(buf, 1024)) {
 	asprintf(&ARGV_REAL_PATH, "%s/%s", buf, argv[argc-2]);

@@ -48,12 +48,12 @@ int rc4(char *data, size_t size)
 
     //Part of random generation algorithm
     //Algorithm encrypts the given size of the data
-    size_t i = 0;
-    size_t j = 0;
+    unsigned char i = 0;
+    unsigned char j = 0;
     unsigned char temp;
     for ( size_t x = 0 ; x < size ; ++x ) {
-        i = ( i + 1 ) % 256;
-        j = ( j + state[i] ) % 256;
+        i += 1;
+        j += state[i];
         temp = state[i];
         state[i] = state[j];
         state[j] = temp;

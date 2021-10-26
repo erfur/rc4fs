@@ -32,18 +32,22 @@ int rc4plus_set_key(const char *const key, const char *const iv)
         return -1;
     }
 
+    //IV length check
+    if ( strnlen(iv, RC4PLUS_IV_SIZE) < RC4PLUS_IV_SIZE ) {
+        printf("Please use %i byte iv.\n", RC4PLUS_IV_SIZE);
+        return -1;
+    }
     //Copy the iv
     memcpy(RC4PLUS_IV, iv, RC4PLUS_IV_SIZE);
 
     //Init RC4PLUS_STATE
     for ( size_t i = 256; i-- ; )
         RC4PLUS_STATE[i] = i;
-
-    size_t j = 0;
+    unsigned char j = 0;
     unsigned char temp;
     //Key loading
     for ( size_t i = 0 ; i < 256 ; ++i ) {
-        j = (j + RC4PLUS_STATE[i] + key[i % key_length]) % 256;
+        j += RC4PLUS_STATE[i] + key[i % key_length];
         //swap part
         temp = RC4PLUS_STATE[i];
         RC4PLUS_STATE[i] = RC4PLUS_STATE[j];
@@ -51,13 +55,15 @@ int rc4plus_set_key(const char *const key, const char *const iv)
     }
     //IV loading
     for ( size_t i = 128 ; i-- ; ) {
-        j = ( (j + RC4PLUS_STATE[i]) ^ (key[i % key_length] + get_iv_char(i)) ) % 256;
+        j += RC4PLUS_STATE[i];
+        j ^= key[i % key_length] + get_iv_char(i);
         temp = RC4PLUS_STATE[i];
         RC4PLUS_STATE[i] = RC4PLUS_STATE[j];
         RC4PLUS_STATE[j] = temp;
     }
     for ( size_t i = 128 ; i < 256 ; ++i ) {
-        j = ( (j + RC4PLUS_STATE[i]) ^ (key[i % key_length] + get_iv_char(i)) ) % 256;
+        j += RC4PLUS_STATE[i];
+        j ^= key[i % key_length] + get_iv_char(i);
         temp = RC4PLUS_STATE[i];
         RC4PLUS_STATE[i] = RC4PLUS_STATE[j];
         RC4PLUS_STATE[j] = temp;
@@ -70,10 +76,43 @@ int rc4plus_set_key(const char *const key, const char *const iv)
         } else {
             i = 128 - ((y+1)/2);
         }
-        j = (j + RC4PLUS_STATE[i] + key[i % key_length]) % 256;
+        j += RC4PLUS_STATE[i] + key[i % key_length];
         temp = RC4PLUS_STATE[i];
         RC4PLUS_STATE[i] = RC4PLUS_STATE[j];
         RC4PLUS_STATE[j] = temp;
     }
+    return 0;
+}
+
+int rc4plus(char *data, size_t size)
+{
+    if ( data == NULL ) {
+        //NULL ptr error
+        return -1;
+    }
+
+    //Getting state matrix
+    unsigned char state[256]; 
+    memcpy(state, RC4PLUS_STATE, 256);
+
+    //Part of random generation algorithm
+    //Algorithm encrypts the given size of the data
+    unsigned char i = 0;
+    unsigned char j = 0;
+    unsigned char t1, t2, t3;
+    unsigned char temp;
+    for ( size_t x = 0 ; x < size ; ++x ) {
+        i += 1;
+        j += state[i];
+        temp = state[i];
+        state[i] = state[j];
+        state[j] = temp;
+        t1 = state[i] + state[j];
+        t2 = (state[((i >> 3) ^ (j << 5)) % 256] + state[((i << 5) ^ ( j >> 3)) % 256]);
+        t2 ^= 0xAA;
+        t3 = j + state[j];
+        data[x] ^= (state[t1] + state[t2]) ^ state[t3];
+    }
+
     return 0;
 }

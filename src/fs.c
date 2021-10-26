@@ -1,4 +1,7 @@
 #include "fs.h"
+#include <linux/limits.h>
+
+char ARGV_REAL_PATH[PATH_MAX];
 
 struct fuse_operations fs_ops = {
     .getattr = fs_getattr,
@@ -8,6 +11,24 @@ struct fuse_operations fs_ops = {
     //    .read = fs_read,
     //    .write = fs_write
 };
+
+struct fuse_operations *fs_get_ops() {
+    return &fs_ops;
+}
+
+int fs_set_realpath(const char *path) {
+    char buf[PATH_MAX];
+    int ret;
+
+    if (getcwd(buf, PATH_MAX)) {
+        ret = snprintf(ARGV_REAL_PATH, PATH_MAX, "%s/%s", buf, path);
+    }
+    
+    // snprintf returns no of bytes written
+    if (ret)
+        return 0;
+    return -1;
+}
 
 char *_fs_realpath(char *path) {
     char *fname, *ptr, *out;

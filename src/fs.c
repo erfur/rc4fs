@@ -1,4 +1,6 @@
 #include "fs.h"
+#include <unistd.h>
+#include <fcntl.h>
 #include <linux/limits.h>
 
 char ARGV_REAL_PATH[PATH_MAX];
@@ -8,7 +10,7 @@ struct fuse_operations fs_ops = {
     //    .getxattr = fs_getxattr,
     .readdir = fs_readdir,
     .open = fs_open,
-    //    .read = fs_read,
+    .read = fs_read
     //    .write = fs_write
 };
 
@@ -128,11 +130,40 @@ int fs_open(const char *path, struct fuse_file_info *fi) {
     char *real_path;
     int ret = 0;
 
+    fs_log("open", "called for %s", path);
+
     if ((real_path = _fs_realpath(path))) {
         fi->fh = open(path, fi->flags);
         free(real_path);
     } else {
         ret = -ENOENT;
+    }
+
+    return ret;
+}
+
+int fs_read (const char *path, char *buf, size_t size, 
+             off_t offset, struct fuse_file_info *fi) {
+    int ret=0, fd;
+    char *real_path;
+
+    if ((real_path = _fs_realpath(path))) {
+
+        fd = open(real_path, O_RDONLY);
+        if (fd < 0) {
+            return 0;
+        }
+
+        if (lseek(fd, offset, SEEK_SET) != offset) {
+            return 0;
+        }
+
+        ret = read(fd, buf, size);
+
+        close(fd);
+
+    } else {
+        ret = 0;
     }
 
     return ret;

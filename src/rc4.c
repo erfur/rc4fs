@@ -50,7 +50,7 @@ int rc4(char *data, size_t size)
     //Algorithm encrypts the given size of the data
     size_t i = 0;
     size_t j = 0;
-    char temp;
+    unsigned char temp;
     for ( size_t x = 0 ; x < size ; ++x ) {
         i = ( i + 1 ) % 256;
         j = ( j + state[i] ) % 256;

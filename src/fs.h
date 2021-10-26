@@ -37,9 +37,9 @@ char *ARGV_REAL_PATH;
  * int (*utime) (const char *, struct utimbuf *);
  * int (*open) (const char *, struct fuse_file_info *);
  * int (*read) (const char *, char *, size_t, off_t,
- * 	     struct fuse_file_info *);
+ *              struct fuse_file_info *);
  * int (*write) (const char *, const char *, size_t, off_t,
- * 	      struct fuse_file_info *);
+ *               struct fuse_file_info *);
  * int (*statfs) (const char *, struct statvfs *);
  * int (*flush) (const char *, struct fuse_file_info *);
  * int (*release) (const char *, struct fuse_file_info *);
@@ -50,7 +50,7 @@ char *ARGV_REAL_PATH;
  * int (*removexattr) (const char *, const char *);
  * int (*opendir) (const char *, struct fuse_file_info *);
  * int (*readdir) (const char *, void *, fuse_fill_dir_t, off_t,
- * 		struct fuse_file_info *);
+ *                 struct fuse_file_info *);
  * int (*releasedir) (const char *, struct fuse_file_info *);
  * int (*fsyncdir) (const char *, int, struct fuse_file_info *);
  * void *(*init) (struct fuse_conn_info *conn);
@@ -60,20 +60,20 @@ char *ARGV_REAL_PATH;
  * int (*ftruncate) (const char *, off_t, struct fuse_file_info *);
  * int (*fgetattr) (const char *, struct stat *, struct fuse_file_info *);
  * int (*lock) (const char *, struct fuse_file_info *, int cmd,
- * 	     struct flock *);
+ *              struct flock *);
  * int (*utimens) (const char *, const struct timespec tv[2]);
  * int (*bmap) (const char *, size_t blocksize, uint64_t *idx);
  * int (*ioctl) (const char *, int cmd, void *arg,
- * 	      struct fuse_file_info *, unsigned int flags, void *data);
+ *               struct fuse_file_info *, unsigned int flags, void *data);
  * int (*poll) (const char *, struct fuse_file_info *,
- * 	     struct fuse_pollhandle *ph, unsigned *reventsp);
+ *              struct fuse_pollhandle *ph, unsigned *reventsp);
  * int (*write_buf) (const char *, struct fuse_bufvec *buf, off_t off,
- * 		  struct fuse_file_info *);
+ *                   struct fuse_file_info *);
  * int (*read_buf) (const char *, struct fuse_bufvec **bufp,
- * 		 size_t size, off_t off, struct fuse_file_info *);
+ *                  size_t size, off_t off, struct fuse_file_info *);
  * int (*flock) (const char *, struct fuse_file_info *, int op);
  * int (*fallocate) (const char *, int, off_t, off_t,
- * 		  struct fuse_file_info *);
+ *                   struct fuse_file_info *);
  * };
  */
 

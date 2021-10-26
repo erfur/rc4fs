@@ -24,14 +24,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (getcwd(buf, 1024)) {
-        asprintf(&ARGV_REAL_PATH, "%s/%s", buf, argv[argc-2]);
-    } else {
+    if (fs_set_realpath(argv[argc-2]) != 0) {
+        fprintf(stderr, "[-] Error while setting realpath.\n");
         return -1;
     }
 
-    ret = fuse_main(argc-2, argv, &fs_ops, 0);
-
-    free(ARGV_REAL_PATH);
-    return ret;
+    return fuse_main(argc-2, argv, fs_get_ops(), 0);
 }

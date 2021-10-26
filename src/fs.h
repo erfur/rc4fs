@@ -17,8 +17,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-char *ARGV_REAL_PATH;
-
 /*
  * struct fuse_operations {
  * int (*getattr) (const char *, struct stat *);
@@ -83,7 +81,7 @@ int fs_open(const char *, struct fuse_file_info *);
 int fs_read (const char *, size_t, off_t, struct fuse_file_info *);
 int fs_write(const char *, const char *, size_t, off_t, struct fuse_file_info *);
 int fs_getxattr(const char *, const char *, char *, size_t);
-
-struct fuse_operations fs_ops;
+struct fuse_operations *fs_get_ops();
+int fs_set_realpath(const char *);
 
 #endif

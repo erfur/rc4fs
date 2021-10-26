@@ -25,13 +25,13 @@ int main(int argc, char **argv) {
     }
 
     if (getcwd(buf, 1024)) {
-	asprintf(&ARGV_REAL_PATH, "%s/%s", buf, argv[argc-2]);
+        asprintf(&ARGV_REAL_PATH, "%s/%s", buf, argv[argc-2]);
     } else {
-	return -1;
+        return -1;
     }
 
     ret = fuse_main(argc-2, argv, &fs_ops, 0);
-    
+
     free(ARGV_REAL_PATH);
     return ret;
 }

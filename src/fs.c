@@ -2,11 +2,11 @@
 
 struct fuse_operations fs_ops = {
     .getattr = fs_getattr,
-//    .getxattr = fs_getxattr,
+    //    .getxattr = fs_getxattr,
     .readdir = fs_readdir,
     .open = fs_open,
-//    .read = fs_read,
-//    .write = fs_write
+    //    .read = fs_read,
+    //    .write = fs_write
 };
 
 char *_fs_realpath(char *path) {
@@ -18,10 +18,10 @@ char *_fs_realpath(char *path) {
     ret = asprintf(&out, "%s%s", ARGV_REAL_PATH, path);
 
     if (ret) {
-	fs_log("fs_realpath", "result: %s", out);
-	return out;
+        fs_log("fs_realpath", "result: %s", out);
+        return out;
     } else {
-	return NULL;
+        return NULL;
     }
 }
 
@@ -35,14 +35,14 @@ void fs_log(const char *fcn, const char *format, ...) {
 }
 
 int fs_getattr(const char *path, struct stat *stbuf,
-               struct fuse_file_info *fi) {
+        struct fuse_file_info *fi) {
     int ret = 0;
     char *real_path;
 
     fs_log("getattr", "called for %s", path);
 
     if ((real_path = _fs_realpath(path))) {
-	fs_log("getattr", "real path: %s", real_path);
+        fs_log("getattr", "real path: %s", real_path);
         ret = stat(real_path, stbuf); 
         free(real_path);
     } else {
@@ -70,8 +70,8 @@ int fs_getattr(const char *path, struct stat *stbuf,
 // }
 
 int fs_readdir(const char *path, void *buffer, 
-               fuse_fill_dir_t filler, off_t offset,
-               struct fuse_file_info *fi) {
+        fuse_fill_dir_t filler, off_t offset,
+        struct fuse_file_info *fi) {
     DIR *dp;
     struct dirent *de;
     char *real_path;
@@ -79,16 +79,16 @@ int fs_readdir(const char *path, void *buffer,
     dp = (DIR *)fi->fh;
 
     if (!dp) {
-    	if ((real_path = _fs_realpath(path))) {
-    	    fs_log("getattr", "real path: %s", real_path);
-	    dp = opendir(real_path);
-    	    free(real_path);
-    	} else {
-    	    return -ENOENT;
-    	}
+        if ((real_path = _fs_realpath(path))) {
+            fs_log("getattr", "real path: %s", real_path);
+            dp = opendir(real_path);
+            free(real_path);
+        } else {
+            return -ENOENT;
+        }
     }
     if (!dp) {
-	return -1;
+        return -1;
     }
 
     fs_log("readdir", "called for %s", path);

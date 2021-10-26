@@ -37,6 +37,11 @@ int rc4_set_key(const char *const key)
 
 int rc4(char *data, size_t size)
 {
+    if ( data == NULL ) {
+        //NULL ptr error
+        return -1;
+    }
+
     //Getting state matrix
     unsigned char state[256]; 
     memcpy(state, RC4_STATE, 256);

@@ -2,16 +2,17 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <linux/limits.h>
+#include <stdarg.h>
 
 char ARGV_REAL_PATH[PATH_MAX];
 
 struct fuse_operations fs_ops = {
+    .init = fs_init,
     .getattr = fs_getattr,
-    //    .getxattr = fs_getxattr,
     .readdir = fs_readdir,
     .open = fs_open,
-    .read = fs_read
-    //    .write = fs_write
+    .read = fs_read,
+    .write = fs_write
 };
 
 struct fuse_operations *fs_get_ops() {
@@ -25,7 +26,7 @@ int fs_set_realpath(const char *path) {
     if (getcwd(buf, PATH_MAX)) {
         ret = snprintf(ARGV_REAL_PATH, PATH_MAX, "%s/%s", buf, path);
     }
-    
+
     // snprintf returns no of bytes written
     if (ret)
         return 0;
@@ -55,6 +56,23 @@ void fs_log(const char *fcn, const char *format, ...) {
     fprintf(stderr, "[%s]: ", fcn);
     vfprintf(stderr, format, ap);
     fprintf(stderr, "\n");
+}
+
+void *fs_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
+    (void) conn;
+    cfg->use_ino = 1;
+    //cfg->nullpath_ok = 1;
+    /* Pick up changes from lower filesystem right away. This is
+       also necessary for better hardlink support. When the kernel
+       calls the unlink() handler, it does not know the inode of
+       the to-be-removed entry and can therefore not invalidate
+       the cache of the associated inode - resulting in an
+       incorrect st_nlink value being reported for any remaining
+       hardlinks to this inode. */
+    cfg->entry_timeout = 0;
+    cfg->attr_timeout = 0;
+    cfg->negative_timeout = 0;
+    return NULL;
 }
 
 int fs_getattr(const char *path, struct stat *stbuf,
@@ -133,7 +151,7 @@ int fs_open(const char *path, struct fuse_file_info *fi) {
     fs_log("open", "called for %s", path);
 
     if ((real_path = _fs_realpath(path))) {
-        fi->fh = open(path, fi->flags);
+        fi->fh = open(real_path, fi->flags);
         free(real_path);
     } else {
         ret = -ENOENT;
@@ -143,16 +161,18 @@ int fs_open(const char *path, struct fuse_file_info *fi) {
 }
 
 int fs_read (const char *path, char *buf, size_t size, 
-             off_t offset, struct fuse_file_info *fi) {
+        off_t offset, struct fuse_file_info *fi) {
     int ret=0, fd;
     char *real_path;
 
     if ((real_path = _fs_realpath(path))) {
 
-        fd = open(real_path, O_RDONLY);
-        if (fd < 0) {
-            return 0;
-        }
+        fd = fi->fh;
+
+        // fd = open(real_path, O_RDONLY);
+        // if (fd < 0) {
+        //     return 0;
+        // }
 
         if (lseek(fd, offset, SEEK_SET) != offset) {
             return 0;
@@ -161,7 +181,39 @@ int fs_read (const char *path, char *buf, size_t size,
         ret = read(fd, buf, size);
 
         close(fd);
+        free(real_path);
+    } else {
+        ret = 0;
+    }
 
+    return ret;
+}
+
+int fs_write(const char *path, char *buf, size_t size,
+        off_t offset, struct fuse_file_info *fi) {
+    int ret=0, fd;
+    char *real_path;
+
+    fs_log("write", "called for %s", path);
+    fs_log("write", "fd=%d", fi->fh);
+
+    if ((real_path = _fs_realpath(path))) {
+
+        fd = fi->fh;
+
+        // fd = open(real_path, O_WRONLY);
+        // if (fd < 0) {
+        //     return 0;
+        // }
+
+        if (lseek(fd, offset, SEEK_SET) != offset) {
+            return 0;
+        }
+
+        ret = write(fd, buf, size);
+
+        close(fd);
+        free(real_path);
     } else {
         ret = 0;
     }

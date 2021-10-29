@@ -1,10 +1,17 @@
 #include "fs.h"
+#include "rc4plus.h"
 #include <unistd.h>
 #include <fcntl.h>
 #include <linux/limits.h>
 #include <stdarg.h>
 
 char ARGV_REAL_PATH[PATH_MAX];
+
+#ifdef FS_CRYPTO_ENABLED
+#define FS_CRYPT_SECTOR_SIZE 4096
+rc4struct *crypt_ctxs[1024];
+char crypt_key[257] = {0};
+#endif
 
 struct fuse_operations fs_ops = {
     .init = fs_init,
@@ -146,12 +153,19 @@ int fs_readdir(const char *path, void *buffer,
 
 int fs_open(const char *path, struct fuse_file_info *fi) {
     char *real_path;
-    int ret = 0;
+    int ret = 0, fd;
+    rc4struct *crypt_ctx;
 
     fs_log("open", "called for %s", path);
 
     if ((real_path = _fs_realpath(path))) {
-        fi->fh = open(real_path, fi->flags);
+        fd = open(real_path, fi->flags);
+        fi->fh = fd;
+
+#ifdef FS_CRYPTO_ENABLED 
+        fs_crypt_init_fd(fd);
+#endif
+
         free(real_path);
     } else {
         ret = -ENOENT;
@@ -160,7 +174,7 @@ int fs_open(const char *path, struct fuse_file_info *fi) {
     return ret;
 }
 
-int fs_read (const char *path, char *buf, size_t size, 
+int fs_read(const char *path, char *buf, size_t size, 
         off_t offset, struct fuse_file_info *fi) {
     int ret=0, fd;
     char *real_path;
@@ -169,16 +183,15 @@ int fs_read (const char *path, char *buf, size_t size,
 
         fd = fi->fh;
 
-        // fd = open(real_path, O_RDONLY);
-        // if (fd < 0) {
-        //     return 0;
-        // }
-
         if (lseek(fd, offset, SEEK_SET) != offset) {
             return 0;
         }
 
         ret = read(fd, buf, size);
+
+#ifdef FS_CRYPTO_ENABLED
+        fs_crypt(fd, buf, ret, offset);
+#endif
 
         close(fd);
         free(real_path);
@@ -201,10 +214,9 @@ int fs_write(const char *path, char *buf, size_t size,
 
         fd = fi->fh;
 
-        // fd = open(real_path, O_WRONLY);
-        // if (fd < 0) {
-        //     return 0;
-        // }
+#ifdef FS_CRYPTO_ENABLED
+        fs_crypt(fd, buf, size, offset);
+#endif
 
         if (lseek(fd, offset, SEEK_SET) != offset) {
             return 0;
@@ -220,3 +232,64 @@ int fs_write(const char *path, char *buf, size_t size,
 
     return ret;
 }
+
+#ifdef FS_CRYPTO_ENABLED
+
+int fs_set_cryptkey(const char *key) {
+    if (strlen(key) == 0)
+        return -1;
+    strncpy(crypt_key, key, 256);
+    return 0;
+}
+
+void fs_crypt_init_fd(int fd) {
+    rc4struct *crypt_ctx;
+
+    if (crypt_ctxs[fd]) {
+        fs_log("open", "existing crypt context!");
+        free(crypt_ctxs[fd]);
+    }
+
+    crypt_ctx = rc4plus_init(crypt_key, "testtesttesttest");
+
+    if (crypt_ctx == NULL) {
+        fs_log("open", "failed to create crypt context.");
+        return -1;
+    }
+
+    crypt_ctxs[fd] = crypt_ctx;
+}
+
+int fs_crypt(int fd, char *buf, size_t len, off_t off) {
+    size_t sz;
+    off_t soff;
+    int ret;
+
+    if (crypt_ctxs[fd] == NULL) {
+        fs_log("crypt", "no crypto context!");
+        return -1;
+    }
+
+    while(len) {
+        soff = off % FS_CRYPT_SECTOR_SIZE;
+        sz = FS_CRYPT_SECTOR_SIZE - soff;
+
+        if (len < sz)
+            sz = len;
+
+        fs_log("crypt", "sz=%u", sz);
+        fs_log("crypt", "off=%u", off);
+        ret = crypt_ctxs[fd]->enc_dec_func(buf+off, sz, soff, crypt_ctxs[fd]->state);
+
+        if (ret != 0) {
+            fs_log("crypt", "error in enc/dec.");
+        }
+
+        off += sz;
+        len -= sz;
+    }
+
+    return 0;
+}
+
+#endif

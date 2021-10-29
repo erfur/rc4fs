@@ -1,4 +1,3 @@
-#include "rc4.h"
 #include "fs.h"
 #include <unistd.h>
 
@@ -19,8 +18,8 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    if ( rc4_set_key(argv[argc-1]) != 0 ) {
-        printf("Invalid key length\n");
+    if (fs_set_cryptkey(argv[argc-1]) != 0) {
+        fprintf(stderr, "[-] Could not import they rc4 key.\n");
         return 1;
     }
 

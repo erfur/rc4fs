@@ -41,10 +41,11 @@ rc4struct *rc4plus_init(const char *const key, const char *const iv)
     }
 
     //IV length check
-    if ( strnlen(iv, RC4PLUS_IV_SIZE) < RC4PLUS_IV_SIZE ) {
-        printf("Please use %i byte iv.\n", RC4PLUS_IV_SIZE);
-        return NULL;
-    }
+    // iv is random data, this will not work
+    // if ( strnlen(iv, RC4PLUS_IV_SIZE) < RC4PLUS_IV_SIZE ) {
+    //     printf("Please use %i byte iv.\n", RC4PLUS_IV_SIZE);
+    //     return NULL;
+    // }
 
     rc4struct *ret = (rc4struct *)malloc(sizeof(rc4struct));
     if ( ret == NULL ) {

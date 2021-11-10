@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define RC4PLUS_IV_SIZE 16
+#define RC4PLUS_IV_SIZE 8
 
 typedef struct _rc4struct {
     unsigned char state[256];

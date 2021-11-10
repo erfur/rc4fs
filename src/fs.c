@@ -4,13 +4,35 @@
 #include <fcntl.h>
 #include <linux/limits.h>
 #include <stdarg.h>
+#include <errno.h>
 
 char ARGV_REAL_PATH[PATH_MAX];
 
+void *fs_init(struct fuse_conn_info *, struct fuse_config *);
+int fs_getattr(const char *, struct stat *, struct fuse_file_info *);
+int fs_mknod(const char *, mode_t, dev_t);
+int fs_readdir(const char *, void *, fuse_fill_dir_t, off_t, struct fuse_file_info *);
+int fs_open(const char *, struct fuse_file_info *);
+int fs_release(const char *, struct fuse_file_info *);
+int fs_read (const char *, char *, size_t, off_t, struct fuse_file_info *);
+int fs_write(const char *, char *, size_t, off_t, struct fuse_file_info *);
+//int fs_unlink(const char *);
+//int fs_setattr(hhhhhh)
+
 #ifdef FS_CRYPTO_ENABLED
+int fs_crypt(int, char *, size_t, off_t);
+uint64_t fetch_random_number();
+
 #define FS_CRYPT_SECTOR_SIZE 4096
-rc4struct *crypt_ctxs[1024];
 char crypt_key[257] = {0};
+
+typedef struct crypt_ctx_s {
+    int in_use;
+    uint64_t key;
+    /* rc4struct *rc4_ctx; */
+} crypt_ctx;
+
+crypt_ctx crypt_ctxs[1024];
 #endif
 
 struct fuse_operations fs_ops = {
@@ -19,7 +41,11 @@ struct fuse_operations fs_ops = {
     .readdir = fs_readdir,
     .open = fs_open,
     .read = fs_read,
-    .write = fs_write
+    .write = fs_write,
+    .release = fs_release,
+    .mknod = fs_mknod,
+//    .unlink = fs_unlink,
+//    .setattr = fs_setattr
 };
 
 struct fuse_operations *fs_get_ops() {
@@ -34,7 +60,7 @@ int fs_set_realpath(const char *path) {
         ret = snprintf(ARGV_REAL_PATH, PATH_MAX, "%s/%s", buf, path);
     }
 
-    // snprintf returns no of bytes written
+    // snprintf returns the number of bytes written
     if (ret)
         return 0;
     return -1;
@@ -79,6 +105,11 @@ void *fs_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
     cfg->entry_timeout = 0;
     cfg->attr_timeout = 0;
     cfg->negative_timeout = 0;
+
+#ifdef FS_CRYPTO_ENABLED
+    memset(crypt_ctxs, 0, sizeof crypt_ctxs);
+#endif
+
     return NULL;
 }
 
@@ -89,12 +120,30 @@ int fs_getattr(const char *path, struct stat *stbuf,
 
     fs_log("getattr", "called for %s", path);
 
-    if ((real_path = _fs_realpath(path))) {
+    if (fi) {
+       ret = fstat(fi->fh, stbuf);
+    } else if ((real_path = _fs_realpath(path))) {
         fs_log("getattr", "real path: %s", real_path);
-        ret = stat(real_path, stbuf); 
+        ret = stat(real_path, stbuf);
         free(real_path);
     } else {
         ret = -ENOENT;
+    }
+
+    if (ret == -1)
+        return -errno;
+
+    return 0;
+}
+
+int fs_mknod(const char *path, mode_t mode, dev_t rdev) {
+    int ret;
+    char *real_path;
+
+    if (real_path = _fs_realpath(path)) {
+        ret = mknod(real_path, mode, rdev);
+    } else {
+        return -ENOENT;
     }
 
     return ret;
@@ -104,20 +153,20 @@ int fs_getattr(const char *path, struct stat *stbuf,
 //                 char *value, size_t size) {
 //     int ret = 0;
 //     char *real_path;
-// 
+//
 //     fs_log("getxattr", "called");
-// 
+//
 //     if ((real_path = _fs_realpath(path))) {
-//         ret = stat(real_path, name, value, size); 
+//         ret = stat(real_path, name, value, size);
 //         free(real_path);
 //     } else {
 //         ret = -ENOENT;
 //     }
-// 
+//
 //     return ret;
 // }
 
-int fs_readdir(const char *path, void *buffer, 
+int fs_readdir(const char *path, void *buffer,
         fuse_fill_dir_t filler, off_t offset,
         struct fuse_file_info *fi) {
     DIR *dp;
@@ -154,19 +203,66 @@ int fs_readdir(const char *path, void *buffer,
 int fs_open(const char *path, struct fuse_file_info *fi) {
     char *real_path;
     int ret = 0, fd;
+    ssize_t fsize;
+    uint64_t key = 0;
     rc4struct *crypt_ctx;
 
     fs_log("open", "called for %s", path);
-
     if ((real_path = _fs_realpath(path))) {
+
+#ifdef FS_CRYPTO_ENABLED
+        if (access(real_path, F_OK) != 0) {
+            fs_log("open", "generating a new iv key for the file");
+
+            key = fetch_random_number();
+            if (key == 0) {
+                fs_log("open", "random number generator failed!");
+                return -1;
+            }
+        } else {
+
+            fs_log("open", "fetching the iv key from the file");
+
+            if ((fd = open(real_path, O_RDWR)) == -1) {
+                fs_log("open", "cannot open file to extract iv key");
+                return -1;
+            }
+
+            if ((fsize = lseek(fd, 0, SEEK_END)) == 0) {
+                fs_log("open", "empty file, generating a new iv key");
+
+                key = fetch_random_number();
+                if (key == 0) {
+                    fs_log("open", "random number generator failed!");
+                    return -1;
+                }
+
+            } else if (fsize < sizeof key) {
+
+                fs_log("open", "file is too short to hold a key, invalid file.");
+                return -1;
+
+            } else {
+
+                lseek(fd, fsize - sizeof key, SEEK_SET);
+                read(fd, &key, sizeof key);
+                ftruncate(fd, fsize - sizeof key);
+                close(fd);
+            }
+
+            fs_log("open", "key for fd %d: %016llx", fd, key);
+        }
+#endif
+
         fd = open(real_path, fi->flags);
         fi->fh = fd;
 
-#ifdef FS_CRYPTO_ENABLED 
-        fs_crypt_init_fd(fd);
+#ifdef FS_CRYPTO_ENABLED
+        fs_crypt_init_fd(fd, key);
 #endif
 
         free(real_path);
+
     } else {
         ret = -ENOENT;
     }
@@ -174,7 +270,37 @@ int fs_open(const char *path, struct fuse_file_info *fi) {
     return ret;
 }
 
-int fs_read(const char *path, char *buf, size_t size, 
+int fs_release(const char *path, struct fuse_file_info *fi) {
+    (void) path;
+    int fd = fi->fh, ffd;
+    char *real_path;
+
+    close(fd);
+
+#ifdef FS_CRYPTO_ENABLED
+    if (real_path = _fs_realpath(path)) {
+
+        if ((ffd = open(real_path, O_WRONLY)) == -1) {
+            fs_log("release", "could not open the file to save the iv key");
+            return -1;
+        }
+
+        lseek(ffd, 0, SEEK_END);
+
+        fs_log("release", "iv key for fd %d: %016llx", fd, crypt_ctxs[fd].key);
+        write(ffd, &(crypt_ctxs[fd].key), sizeof crypt_ctxs[fd].key);
+
+        crypt_ctxs[fd].in_use = 0;
+        /* rc4plus_destroy(crypt_ctxs[fd].rc4_ctx); */
+
+        close(ffd);
+    }
+#endif
+
+    return 0;
+}
+
+int fs_read(const char *path, char *buf, size_t size,
         off_t offset, struct fuse_file_info *fi) {
     int ret=0, fd;
     char *real_path;
@@ -193,7 +319,6 @@ int fs_read(const char *path, char *buf, size_t size,
         fs_crypt(fd, buf, ret, offset);
 #endif
 
-        close(fd);
         free(real_path);
     } else {
         ret = 0;
@@ -224,7 +349,6 @@ int fs_write(const char *path, char *buf, size_t size,
 
         ret = write(fd, buf, size);
 
-        close(fd);
         free(real_path);
     } else {
         ret = 0;
@@ -235,6 +359,22 @@ int fs_write(const char *path, char *buf, size_t size,
 
 #ifdef FS_CRYPTO_ENABLED
 
+uint64_t fetch_random_number() {
+    int fd;
+    uint64_t result;
+
+    if ((fd = open("/dev/urandom", O_RDONLY)) == -1) {
+        return 0;
+    }
+
+    if (read(fd, &result, sizeof result) < sizeof result) {
+        return 0;
+    }
+
+    close(fd);
+    return result;
+}
+
 int fs_set_cryptkey(const char *key) {
     if (strlen(key) == 0)
         return -1;
@@ -242,30 +382,40 @@ int fs_set_cryptkey(const char *key) {
     return 0;
 }
 
-void fs_crypt_init_fd(int fd) {
-    rc4struct *crypt_ctx;
+void fs_crypt_init_fd(int fd, uint64_t key) {
+    /* rc4struct *rc4_ctx; */
 
-    if (crypt_ctxs[fd]) {
+    if (crypt_ctxs[fd].in_use) {
         fs_log("open", "existing crypt context!");
-        free(crypt_ctxs[fd]);
+        /* rc4plus_destroy(crypt_ctxs[fd].rc4_ctx); */
     }
 
-    crypt_ctx = rc4plus_init(crypt_key, "testtesttesttest");
+    /* rc4_ctx = rc4plus_init(crypt_key, &key); */
 
-    if (crypt_ctx == NULL) {
-        fs_log("open", "failed to create crypt context.");
-        return -1;
-    }
+    /* if (rc4_ctx == NULL) { */
+    /*     fs_log("open", "failed to create crypt context."); */
+    /*     return -1; */
+    /* } */
 
-    crypt_ctxs[fd] = crypt_ctx;
+    /* crypt_ctxs[fd].rc4_ctx = rc4_ctx; */
+    fs_log("init_fd", "iv key for fd %d: %016llx", fd, key);
+    crypt_ctxs[fd].key = key;
+    crypt_ctxs[fd].in_use = 1;
+}
+
+uint64_t fs_crypt_nth_rand(uint64_t s, off_t n) {
+    return ((0xabba5dede0bacada ^ s) * n);
 }
 
 int fs_crypt(int fd, char *buf, size_t len, off_t off) {
     size_t sz;
     off_t soff;
     int ret;
+    rc4struct *rc4_ctx;
+    uint64_t iv;
+    off_t n;
 
-    if (crypt_ctxs[fd] == NULL) {
+    if (crypt_ctxs[fd].in_use == 0) {
         fs_log("crypt", "no crypto context!");
         return -1;
     }
@@ -279,13 +429,25 @@ int fs_crypt(int fd, char *buf, size_t len, off_t off) {
 
         fs_log("crypt", "sz=%u", sz);
         fs_log("crypt", "off=%u", off);
-        ret = crypt_ctxs[fd]->enc_dec_func(buf+off, sz, soff, crypt_ctxs[fd]->state);
+
+        n = off / FS_CRYPT_SECTOR_SIZE;
+        iv = fs_crypt_nth_rand(crypt_ctxs[fd].key, n);
+
+        fs_log("crypt", "iv=%016llx", iv);
+        fs_log("crypt", "n=%u", n);
+
+        rc4_ctx = rc4plus_init(crypt_key, &iv);
+
+        ret = rc4_ctx->enc_dec_func(buf, sz, soff, rc4_ctx->state);
 
         if (ret != 0) {
             fs_log("crypt", "error in enc/dec.");
         }
 
+        rc4plus_destroy(rc4_ctx);
+
         off += sz;
+        buf += sz;
         len -= sz;
     }
 

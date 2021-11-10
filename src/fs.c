@@ -29,7 +29,7 @@ char crypt_key[257] = {0};
 typedef struct crypt_ctx_s {
     int in_use;
     uint64_t key;
-    rc4struct *rc4_ctx;
+    /* rc4struct *rc4_ctx; */
 } crypt_ctx;
 
 crypt_ctx crypt_ctxs[1024];
@@ -291,7 +291,7 @@ int fs_release(const char *path, struct fuse_file_info *fi) {
         write(ffd, &(crypt_ctxs[fd].key), sizeof crypt_ctxs[fd].key);
 
         crypt_ctxs[fd].in_use = 0;
-        rc4plus_destroy(crypt_ctxs[fd].rc4_ctx);
+        /* rc4plus_destroy(crypt_ctxs[fd].rc4_ctx); */
 
         close(ffd);
     }
@@ -383,30 +383,37 @@ int fs_set_cryptkey(const char *key) {
 }
 
 void fs_crypt_init_fd(int fd, uint64_t key) {
-    rc4struct *rc4_ctx;
+    /* rc4struct *rc4_ctx; */
 
     if (crypt_ctxs[fd].in_use) {
         fs_log("open", "existing crypt context!");
-        rc4plus_destroy(crypt_ctxs[fd].rc4_ctx);
+        /* rc4plus_destroy(crypt_ctxs[fd].rc4_ctx); */
     }
 
-    rc4_ctx = rc4plus_init(crypt_key, &key);
+    /* rc4_ctx = rc4plus_init(crypt_key, &key); */
 
-    if (rc4_ctx == NULL) {
-        fs_log("open", "failed to create crypt context.");
-        return -1;
-    }
+    /* if (rc4_ctx == NULL) { */
+    /*     fs_log("open", "failed to create crypt context."); */
+    /*     return -1; */
+    /* } */
 
-    crypt_ctxs[fd].rc4_ctx = rc4_ctx;
+    /* crypt_ctxs[fd].rc4_ctx = rc4_ctx; */
     fs_log("init_fd", "iv key for fd %d: %016llx", fd, key);
     crypt_ctxs[fd].key = key;
     crypt_ctxs[fd].in_use = 1;
+}
+
+uint64_t fs_crypt_nth_rand(uint64_t s, off_t n) {
+    return ((0xabba5dede0bacada ^ s) * n);
 }
 
 int fs_crypt(int fd, char *buf, size_t len, off_t off) {
     size_t sz;
     off_t soff;
     int ret;
+    rc4struct *rc4_ctx;
+    uint64_t iv;
+    off_t n;
 
     if (crypt_ctxs[fd].in_use == 0) {
         fs_log("crypt", "no crypto context!");
@@ -422,13 +429,25 @@ int fs_crypt(int fd, char *buf, size_t len, off_t off) {
 
         fs_log("crypt", "sz=%u", sz);
         fs_log("crypt", "off=%u", off);
-        ret = crypt_ctxs[fd].rc4_ctx->enc_dec_func(buf+off, sz, soff, crypt_ctxs[fd].rc4_ctx->state);
+
+        n = off / FS_CRYPT_SECTOR_SIZE;
+        iv = fs_crypt_nth_rand(crypt_ctxs[fd].key, n);
+
+        fs_log("crypt", "iv=%016llx", iv);
+        fs_log("crypt", "n=%u", n);
+
+        rc4_ctx = rc4plus_init(crypt_key, &iv);
+
+        ret = rc4_ctx->enc_dec_func(buf, sz, soff, rc4_ctx->state);
 
         if (ret != 0) {
             fs_log("crypt", "error in enc/dec.");
         }
 
+        rc4plus_destroy(rc4_ctx);
+
         off += sz;
+        buf += sz;
         len -= sz;
     }
 

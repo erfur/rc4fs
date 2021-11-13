@@ -1,27 +1,41 @@
 #include "fs.h"
 #include "rc4plus.h"
-#include <unistd.h>
+#include <ctype.h>
+#include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <fuse.h>
+#include <libgen.h>
+#include <limits.h>
 #include <linux/limits.h>
 #include <stdarg.h>
-#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 char ARGV_REAL_PATH[PATH_MAX];
 
+void fs_log(const char *, const char *, ...);
 void *fs_init(struct fuse_conn_info *, struct fuse_config *);
 int fs_getattr(const char *, struct stat *, struct fuse_file_info *);
 int fs_mknod(const char *, mode_t, dev_t);
-int fs_readdir(const char *, void *, fuse_fill_dir_t, off_t, struct fuse_file_info *);
+int fs_unlink(const char *);
+int fs_readdir(const char *, void *, fuse_fill_dir_t, off_t, struct fuse_file_info *,
+               enum fuse_readdir_flags);
 int fs_open(const char *, struct fuse_file_info *);
 int fs_release(const char *, struct fuse_file_info *);
 int fs_read (const char *, char *, size_t, off_t, struct fuse_file_info *);
-int fs_write(const char *, char *, size_t, off_t, struct fuse_file_info *);
-//int fs_unlink(const char *);
+int fs_write(const char *, const char *, size_t, off_t, struct fuse_file_info *);
+int fs_unlink(const char *);
 //int fs_setattr(hhhhhh)
 
 #ifdef FS_CRYPTO_ENABLED
 int fs_crypt(int, char *, size_t, off_t);
 uint64_t fetch_random_number();
+void fs_crypt_init_fd(int , uint64_t );
 
 #define FS_CRYPT_SECTOR_SIZE 4096
 char crypt_key[257] = {0};
@@ -44,7 +58,7 @@ struct fuse_operations fs_ops = {
     .write = fs_write,
     .release = fs_release,
     .mknod = fs_mknod,
-//    .unlink = fs_unlink,
+    .unlink = fs_unlink,
 //    .setattr = fs_setattr
 };
 
@@ -66,13 +80,18 @@ int fs_set_realpath(const char *path) {
     return -1;
 }
 
-char *_fs_realpath(char *path) {
-    char *fname, *ptr, *out;
+char *_fs_realpath(const char *path) {
+    char *out;
     int ret;
 
     fs_log("fs_realpath", "called for %s", path);
 
-    ret = asprintf(&out, "%s%s", ARGV_REAL_PATH, path);
+    if ((out = malloc(PATH_MAX)) == NULL) {
+        fs_log("fs_realpath", "malloc failed.");
+        return NULL;
+    }
+
+    ret = snprintf(out, PATH_MAX, "%s%s", ARGV_REAL_PATH, path);
 
     if (ret) {
         fs_log("fs_realpath", "result: %s", out);
@@ -140,13 +159,31 @@ int fs_mknod(const char *path, mode_t mode, dev_t rdev) {
     int ret;
     char *real_path;
 
-    if (real_path = _fs_realpath(path)) {
+    if ((real_path = _fs_realpath(path))) {
         ret = mknod(real_path, mode, rdev);
+        free(real_path);
     } else {
         return -ENOENT;
     }
 
     return ret;
+}
+
+int fs_unlink(const char *path) {
+    int ret;
+    char *real_path;
+
+    if ((real_path = _fs_realpath(path))) {
+        ret = unlink(real_path);
+        free(real_path);
+    } else {
+        return -ENOENT;
+    }
+
+    if (ret == -1)
+        return -errno;
+
+    return 0;
 }
 
 // int fs_getxattr(const char *path, const char *name,
@@ -168,7 +205,7 @@ int fs_mknod(const char *path, mode_t mode, dev_t rdev) {
 
 int fs_readdir(const char *path, void *buffer,
         fuse_fill_dir_t filler, off_t offset,
-        struct fuse_file_info *fi) {
+        struct fuse_file_info *fi, enum fuse_readdir_flags flags) {
     DIR *dp;
     struct dirent *de;
     char *real_path;
@@ -192,7 +229,7 @@ int fs_readdir(const char *path, void *buffer,
     fs_log("readdir", "handle: %d", dp);
 
     do {
-        if (de = readdir(dp)) {
+        if ((de = readdir(dp))) {
             filler(buffer, de->d_name, NULL, 0, 0);
         }
     } while (de);
@@ -205,7 +242,6 @@ int fs_open(const char *path, struct fuse_file_info *fi) {
     int ret = 0, fd;
     ssize_t fsize;
     uint64_t key = 0;
-    rc4struct *crypt_ctx;
 
     fs_log("open", "called for %s", path);
     if ((real_path = _fs_realpath(path))) {
@@ -278,7 +314,7 @@ int fs_release(const char *path, struct fuse_file_info *fi) {
     close(fd);
 
 #ifdef FS_CRYPTO_ENABLED
-    if (real_path = _fs_realpath(path)) {
+    if ((real_path = _fs_realpath(path))) {
 
         if ((ffd = open(real_path, O_WRONLY)) == -1) {
             fs_log("release", "could not open the file to save the iv key");
@@ -327,10 +363,10 @@ int fs_read(const char *path, char *buf, size_t size,
     return ret;
 }
 
-int fs_write(const char *path, char *buf, size_t size,
+int fs_write(const char *path, const char *buf, size_t size,
         off_t offset, struct fuse_file_info *fi) {
     int ret=0, fd;
-    char *real_path;
+    char *real_path, *buf_duplicate;
 
     fs_log("write", "called for %s", path);
     fs_log("write", "fd=%d", fi->fh);
@@ -340,14 +376,23 @@ int fs_write(const char *path, char *buf, size_t size,
         fd = fi->fh;
 
 #ifdef FS_CRYPTO_ENABLED
-        fs_crypt(fd, buf, size, offset);
+        if ((buf_duplicate = malloc(size)) == NULL) {
+            fs_log("write", "malloc failed.");
+            return -ENOMEM;
+        }
+
+        memcpy(buf_duplicate, buf, size);
+
+        fs_crypt(fd, buf_duplicate, size, offset);
+#else
+        buf_duplicate = buf;
 #endif
 
         if (lseek(fd, offset, SEEK_SET) != offset) {
             return 0;
         }
 
-        ret = write(fd, buf, size);
+        ret = write(fd, buf_duplicate, size);
 
         free(real_path);
     } else {
@@ -436,7 +481,7 @@ int fs_crypt(int fd, char *buf, size_t len, off_t off) {
         fs_log("crypt", "iv=%016llx", iv);
         fs_log("crypt", "n=%u", n);
 
-        rc4_ctx = rc4plus_init(crypt_key, &iv);
+        rc4_ctx = rc4plus_init(crypt_key, (const char *)&iv);
 
         ret = rc4_ctx->enc_dec_func(buf, sz, soff, rc4_ctx->state);
 
